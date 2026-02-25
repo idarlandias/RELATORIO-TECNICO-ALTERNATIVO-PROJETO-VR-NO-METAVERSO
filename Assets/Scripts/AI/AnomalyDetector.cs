@@ -55,7 +55,7 @@ namespace SentinelVR.AI
         private void Start()
         {
             InitializeCaptureResources();
-            StartCoroutine(ConnectWebSocket());
+            ConnectWebSocket();
         }
 
         private void Update()
@@ -84,7 +84,7 @@ namespace SentinelVR.AI
             _captureTexture = new Texture2D(captureWidth, captureHeight, TextureFormat.RGB24, false);
         }
 
-        private IEnumerator ConnectWebSocket()
+        private async void ConnectWebSocket()
         {
             _webSocket = new WebSocket(serverUrl);
 
@@ -114,7 +114,7 @@ namespace SentinelVR.AI
                 ProcessServerResponse(json);
             };
 
-            yield return StartCoroutine(_webSocket.Connect());
+            await _webSocket.Connect();
         }
 
         private IEnumerator ReconnectAfterDelay(float delay)
@@ -123,7 +123,7 @@ namespace SentinelVR.AI
             if (!_isConnected)
             {
                 Debug.Log("[AnomalyDetector] Tentando reconectar...");
-                StartCoroutine(ConnectWebSocket());
+                ConnectWebSocket();
             }
         }
 
