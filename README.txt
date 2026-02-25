@@ -84,7 +84,6 @@ Packages/
   manifest.json         → Dependencias do projeto (Meta XR SDK, NativeWebSocket)
 
 Relatorio.md            → Relatorio tecnico completo (9 secoes)
-Relatorio.docx          → Relatorio tecnico em formato Word
 README.txt              → Este arquivo
 
 
