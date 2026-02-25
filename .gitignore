@@ -1,0 +1,56 @@
+# =============================================
+# Unity .gitignore
+# Projeto: Meu Primeiro Ambiente VR
+# =============================================
+
+# Pastas geradas automaticamente pelo Unity (não subir)
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Memorycaptures
+MemoryCaptures/
+
+# Asset Meta Data gerado automaticamente
+# (manter os .meta dos arquivos da pasta Assets)
+
+# Visual Studio / Rider - arquivos gerados
+.vs/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+.vsconfig
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Crashlytics
+crashlytics-build.properties
+export_options.plist
+
+# Pastas de build Android/iOS
+*.apk
+*.aab
+*.ipa
+ExportedProject/
