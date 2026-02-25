@@ -83,7 +83,7 @@ ProjectSettings/        → Configuracoes do Unity (XR, URP, Android)
 Packages/
   manifest.json         → Dependencias do projeto (Meta XR SDK, NativeWebSocket)
 
-Relatorio.md            → Relatorio tecnico completo (9 secoes)
+"SentinelVR Relatório Final.pdf" → Relatorio tecnico completo (9 secoes)
 README.txt              → Este arquivo
 
 
