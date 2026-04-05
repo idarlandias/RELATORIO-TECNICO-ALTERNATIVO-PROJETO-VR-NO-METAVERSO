@@ -1,110 +1,73 @@
 # SentinelVR — Servidor Python de Detecção de Anomalias
 
-Servidor WebSocket assíncrono que processa frames de câmeras de vigilância com um autoencoder PyTorch para detectar anomalias em tempo real.
+## Visão Geral
 
-## Requisitos
+Servidor WebSocket assíncrono que recebe frames das câmeras de vigilância do Unity, processa com **ResNet50 + Autoencoder** e retorna score de anomalia em tempo real.
 
-- Python 3.10+
-- CUDA (opcional, para GPU acceleration)
+### Protocolo
 
-## Instalação
+| Direção | Formato |
+|---|---|
+| Unity → Python | `int32(camera_index)` + `bytes(PNG frame)` |
+| Python → Unity | `{"camera": 0, "score": 0.087, "is_anomaly": true}` |
+
+## Setup
 
 ```bash
-cd PythonServer
-python -m venv venv
-# Windows:
-venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
+cd PythonServer/
 
+# Criar ambiente virtual
+python -m venv venv
+venv\Scripts\activate        # Windows
+source venv/bin/activate     # Linux/Mac
+
+# Instalar dependências
 pip install -r requirements.txt
 ```
 
-## Execução do Servidor
+## Executar o Servidor
 
 ```bash
-# Sem modelo treinado (scores aleatórios, apenas para testes de conexão):
+# Modo padrão (ws://localhost:8765)
 python anomaly_server.py
 
-# Com modelo treinado:
-python anomaly_server.py --model sentinel_model.pth
-
-# Com host e porta customizados:
-python anomaly_server.py --host 0.0.0.0 --port 8765 --model sentinel_model.pth
+# Personalizado
+python anomaly_server.py --host 0.0.0.0 --port 8765 --model sentinel_autoencoder.pth
 ```
 
-O servidor escuta em `ws://localhost:8765` por padrão.
-
-## Protocolo WebSocket
-
-### Mensagem de Entrada (Unity → Servidor)
-```json
-{
-  "frame": "<base64 JPEG>",
-  "threshold": 0.7
-}
-```
-
-### Mensagem de Saída (Servidor → Unity)
-```json
-{
-  "anomaly_score": 0.85,
-  "location_x": 0.42,
-  "location_y": 0.67,
-  "message": "anomalia detectada",
-  "threshold": 0.7
-}
-```
-
-- `anomaly_score`: valor entre 0 (normal) e 1 (anomalia severa)
-- `location_x`, `location_y`: coordenadas normalizadas (0-1) da anomalia no frame
-- `message`: `"anomalia detectada"` se score >= threshold, `"normal"` caso contrário
-
-## Treinamento do Modelo
-
-### Preparar dados
-
-Colete frames de vídeo normais (sem anomalias) das câmeras e salve como JPEGs:
-
-```
-data/
-  normal_frames/
-    frame_0001.jpg
-    frame_0002.jpg
-    ...
-```
-
-### Treinar
+## Treinar o Autoencoder
 
 ```bash
-python train_autoencoder.py \
-  --data_dir ./data/normal_frames \
-  --epochs 50 \
-  --batch_size 32 \
-  --output sentinel_model.pth
+# 1. Capture frames normais via Unity e salve em data/normal_frames/
+# 2. Execute o treinamento
+python train_autoencoder.py --data_dir ./data/normal_frames --epochs 50
+
+# O modelo é salvo como sentinel_autoencoder.pth
+# O script exibe o threshold recomendado ao final do treino
 ```
 
-### Validar limiar
-
-Após treinar, teste o limiar com frames anômalos rotulados:
-- Abaixo de 0.5: muito sensível (muitos falsos positivos)
-- Entre 0.6 e 0.8: recomendado para ambientes controlados
-- Acima de 0.8: menos sensível (pode perder anomalias sutis)
-
-## Configuração no Unity
-
-No componente `AnomalyDetector` do Unity:
-- **Server URL**: `ws://localhost:8765` (ou IP da máquina com o servidor)
-- **Anomaly Threshold**: usar o mesmo limiar configurado no servidor
-- **Capture Interval**: intervalo entre frames (0.5s recomendado)
-
-## Estrutura de Arquivos
+## Arquitetura do Modelo
 
 ```
-PythonServer/
-├── anomaly_server.py       # Servidor WebSocket principal
-├── train_autoencoder.py    # Script de treinamento
-├── requirements.txt        # Dependências Python
-├── README_server.md        # Este arquivo
-└── sentinel_model.pth      # Modelo treinado (gerado após treino)
+Frame PNG (512x512)
+     |
+ResNet50 (ImageNet, frozen)
+     |
+Feature Vector [2048d]
+     |
+Autoencoder:
+  Encoder: 2048 → 512 → 128 → 64
+  Decoder: 64 → 128 → 512 → 2048
+     |
+MSE Score > 0.045 → ANOMALIA
 ```
+
+## Dependências
+
+| Pacote | Versão | Uso |
+|---|---|---|
+| `websockets` | ≥12.0 | Servidor WebSocket assíncrono |
+| `torch` | ≥2.0.0 | Autoencoder e inferência |
+| `torchvision` | ≥0.15.0 | ResNet50 + transforms |
+| `Pillow` | ≥10.0.0 | Decodificação de PNG |
+| `numpy` | ≥1.24.0 | Utilitários numéricos |

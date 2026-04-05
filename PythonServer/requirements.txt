@@ -1,5 +1,15 @@
+# SentinelVR — Dependencias do Servidor Python
+# Instalar: pip install -r requirements.txt
+
+# WebSocket assíncrono
 websockets>=12.0
+
+# Deep Learning — feature extraction (ResNet50) + Autoencoder
 torch>=2.0.0
 torchvision>=0.15.0
+
+# Processamento de imagem
 Pillow>=10.0.0
+
+# Utilitarios numericos
 numpy>=1.24.0

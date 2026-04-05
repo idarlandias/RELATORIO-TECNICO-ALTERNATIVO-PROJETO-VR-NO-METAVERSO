@@ -1,233 +1,119 @@
 """
-SentinelVR — Treinamento do Autoencoder de Detecção de Anomalias
+SentinelVR — Treinamento do Autoencoder de Deteccao de Anomalias
 =================================================================
-Script para treinar o autoencoder convolucional com frames normais capturados
-das câmeras de vigilância.
+Treina o AnomalyAutoencoder com frames normais capturados das cameras
+de vigilancia. O modelo aprendido e salvo como sentinel_autoencoder.pth.
+
+Fluxo:
+    1. Capturar frames normais (sem anomalias) e salvar em data/normal_frames/
+    2. Executar este script
+    3. O modelo salvo e usado pelo anomaly_server.py
 
 Uso:
-    python train_autoencoder.py --data_dir ./data/normal_frames --epochs 50 --output model.pth
+    python train_autoencoder.py
+    python train_autoencoder.py --data_dir ./data/normal_frames --epochs 100
 
 Estrutura esperada de dados:
     data/normal_frames/
-        frame_0001.jpg
-        frame_0002.jpg
+        cam01_frame_0001.png
+        cam01_frame_0002.png
+        cam02_frame_0001.png
         ...
 """
 
+import os
 import argparse
 import logging
-import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image
 
-# Importar arquitetura do servidor
-from anomaly_server import ConvAutoencoder
+from anomaly_server import AnomalyAutoencoder, feature_extractor, preprocess, device
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
-)
-logger = logging.getLogger("SentinelVR.Train")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("SentinelVR.Trainer")
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Dataset
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 
+class NormalFramesDataset(Dataset):
+    """Dataset de frames normais para treinamento do Autoencoder."""
 
-class SurveillanceFrameDataset(Dataset):
-    """
-    Dataset de frames normais de câmeras de vigilância para treino do autoencoder.
-    """
+    EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
-    SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
-
-    def __init__(self, data_dir: str, image_size: int = 224):
-        self.data_dir = data_dir
-        self.transform = transforms.Compose(
-            [
-                transforms.Resize((image_size, image_size)),
-                transforms.ToTensor(),
-            ]
-        )
-
-        self.image_paths = []
-        if os.path.exists(data_dir):
-            self._load_image_paths()
-        else:
-            logger.warning(
-                f"Diretório de dados não encontrado: {data_dir}. Crie-o e adicione imagens para treinar."
-            )
-
-    def _load_image_paths(self):
-        """Carrega caminhos de todas as imagens suportadas no diretório."""
-        for root, _, files in os.walk(self.data_dir):
-            for file in files:
-                if any(file.lower().endswith(ext) for ext in self.SUPPORTED_EXTENSIONS):
-                    self.image_paths.append(os.path.join(root, file))
-
-        logger.info(f"Encontradas {len(self.image_paths)} imagens em {self.data_dir}")
+    def __init__(self, data_dir: str):
+        self.paths = [
+            os.path.join(data_dir, f)
+            for f in sorted(os.listdir(data_dir))
+            if os.path.splitext(f)[1].lower() in self.EXTENSIONS
+        ]
+        if not self.paths:
+            raise ValueError(f"Nenhuma imagem encontrada em: {data_dir}")
+        logger.info(f"Dataset: {len(self.paths)} frames em '{data_dir}'")
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.paths)
 
-    def __getitem__(self, idx):
-        img_path = self.image_paths[idx]
-        try:
-            image = Image.open(img_path).convert("RGB")
-            if self.transform:
-                image = self.transform(image)
-            return image
-        except Exception as e:
-            logger.error(f"Erro ao carregar imagem {img_path}: {e}")
-            # Em caso de erro, retorna um tensor vazio ou a próxima imagem
-            return torch.zeros(3, 224, 224)
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        image    = Image.open(self.paths[idx]).convert("RGB")
+        tensor   = preprocess(image).unsqueeze(0).to(device)
+        with torch.no_grad():
+            features = feature_extractor(tensor).view(1, -1)
+        return features.squeeze(0)  # [2048]
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Treinamento
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 
+def train(data_dir: str, epochs: int, batch_size: int, lr: float, output: str):
+    dataset    = NormalFramesDataset(data_dir)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
 
-def train(
-    model: ConvAutoencoder,
-    dataloader: DataLoader,
-    epochs: int,
-    learning_rate: float,
-    device: str,
-    output_path: str,
-):
-    """
-    Treina o autoencoder usando reconstrução MSE como função de perda.
-    Salva checkpoint ao final de cada época e o modelo final em output_path.
-    """
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    model     = AnomalyAutoencoder().to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
-    model.train()
+    logger.info(f"Iniciando treinamento | Epocas: {epochs} | Batch: {batch_size} | LR: {lr}")
 
-    if len(dataloader) == 0:
-        logger.error("Dataloader vazio. Não há imagens para treinar.")
-        return
-
-    for epoch in range(epochs):
+    for epoch in range(1, epochs + 1):
+        model.train()
         total_loss = 0.0
-        num_batches = 0
 
         for batch in dataloader:
-            # 1. Mover batch para device
             batch = batch.to(device)
-
-            # 2. Forward pass: output = model(batch)
-            output = model(batch)
-
-            # 3. Calcular loss = criterion(output, batch)
-            loss = criterion(output, batch)
-
-            # 4. Backward pass e optimizer.step()
             optimizer.zero_grad()
+            recon = model(batch)
+            loss  = criterion(recon, batch)
             loss.backward()
             optimizer.step()
+            total_loss += loss.item() * batch.size(0)
 
-            # 5. Acumular total_loss
-            total_loss += loss.item()
-            num_batches += 1
+        avg_loss = total_loss / len(dataset)
 
-        avg_loss = total_loss / max(num_batches, 1)
-        logger.info(f"Época [{epoch+1}/{epochs}] Loss: {avg_loss:.6f}")
+        if epoch % 10 == 0 or epoch == 1:
+            logger.info(f"Epoca {epoch:03d}/{epochs} | MSE medio: {avg_loss:.6f}")
 
-        # Salvar checkpoint a cada 10 épocas
-        if (epoch + 1) % 10 == 0:
-            checkpoint_path = f"{output_path.split('.pth')[0]}_epoch_{epoch+1}.pth"
-            torch.save(model.state_dict(), checkpoint_path)
-            logger.info(f"Checkpoint salvo: {checkpoint_path}")
-
-    # Salvar modelo final em output_path
-    torch.save(model.state_dict(), output_path)
-    logger.info(f"Treinamento concluído. Modelo salvo em: {output_path}")
+    torch.save(model.state_dict(), output)
+    logger.info(f"Modelo salvo em: {output}")
+    logger.info(f"MSE final: {avg_loss:.6f} | Threshold recomendado: {avg_loss * 3:.4f}")
 
 
-# ─────────────────────────────────────────────
-# Avaliação
-# ─────────────────────────────────────────────
-
-
-def evaluate_threshold(
-    model: ConvAutoencoder, normal_dir: str, anomaly_dir: str, device: str
-):
-    """
-    Avalia o limiar ideal de detecção comparando frames normais e anômalos.
-    Calcula métricas: precisão, recall, F1-score para diferentes thresholds.
-    """
-    # TODO: Implementar avaliação com exemplos de anomalias rotuladas
-    pass
-
-
-# ─────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Treinar autoencoder SentinelVR")
-    parser.add_argument(
-        "--data_dir", required=True, help="Diretório com frames normais de treinamento"
-    )
-    parser.add_argument(
-        "--epochs", type=int, default=50, help="Número de épocas (default: 50)"
-    )
-    parser.add_argument(
-        "--batch_size", type=int, default=32, help="Tamanho do batch (default: 32)"
-    )
-    parser.add_argument(
-        "--lr", type=float, default=1e-3, help="Learning rate (default: 0.001)"
-    )
-    parser.add_argument(
-        "--output", default="sentinel_model.pth", help="Caminho do modelo salvo"
-    )
-    parser.add_argument(
-        "--image_size", type=int, default=224, help="Tamanho das imagens (default: 224)"
-    )
-    args = parser.parse_args()
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Dispositivo: {device}")
-
-    # 1. Dataset e Dataloader
-    logger.info(f"Carregando dataset de {args.data_dir}...")
-    dataset = SurveillanceFrameDataset(args.data_dir, image_size=args.image_size)
-
-    if len(dataset) == 0:
-        logger.error("Nenhuma imagem encontrada. Abortando treinamento.")
-        return
-
-    dataloader = DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=2,
-        pin_memory=True if device == "cuda" else False,
-    )
-
-    # 2. Instanciar modelo
-    logger.info("Inicializando modelo Autoencoder Convolucional...")
-    model = ConvAutoencoder().to(device)
-
-    # 3. Treinar
-    logger.info(
-        f"Iniciando treinamento ({args.epochs} épocas, batch size {args.batch_size})..."
-    )
-    train(
-        model=model,
-        dataloader=dataloader,
-        epochs=args.epochs,
-        learning_rate=args.lr,
-        device=device,
-        output_path=args.output,
-    )
-
+# ─────────────────────────────────────────────────────────────────────────────
+# Entrypoint
+# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="SentinelVR Autoencoder Training")
+    parser.add_argument("--data_dir",   default="./data/normal_frames", help="Pasta com frames normais")
+    parser.add_argument("--epochs",     type=int,   default=50,    help="Numero de epocas")
+    parser.add_argument("--batch_size", type=int,   default=32,    help="Tamanho do batch")
+    parser.add_argument("--lr",         type=float, default=1e-3,  help="Learning rate")
+    parser.add_argument("--output",     default="sentinel_autoencoder.pth", help="Arquivo de saida")
+    args = parser.parse_args()
+
+    train(args.data_dir, args.epochs, args.batch_size, args.lr, args.output)

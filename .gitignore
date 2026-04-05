@@ -1,9 +1,9 @@
 # =============================================
-# Unity .gitignore
-# Projeto: Meu Primeiro Ambiente VR
+# SentinelVR — .gitignore
+# Unity 6 + Python + Meta XR SDK
 # =============================================
 
-# Pastas geradas automaticamente pelo Unity (não subir)
+# ── Unity ──────────────────────────────────
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
@@ -11,15 +11,10 @@
 [Bb]uilds/
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
-
-# Memorycaptures
 MemoryCaptures/
+Recordings/
 
-# Asset Meta Data gerado automaticamente
-# (manter os .meta dos arquivos da pasta Assets)
-
-# Visual Studio / Rider - arquivos gerados
-.vs/
+# Unity gerados
 *.csproj
 *.unityproj
 *.sln
@@ -34,23 +29,49 @@ MemoryCaptures/
 *.mdb
 *.opendb
 *.VC.db
-.vsconfig
 
-# JetBrains Rider
+# IDEs
+.vs/
 .idea/
 *.sln.iml
+.vsconfig
 
-# Sistema operacional
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Crashlytics
-crashlytics-build.properties
-export_options.plist
-
-# Pastas de build Android/iOS
+# APK / Build Android
 *.apk
 *.aab
 *.ipa
 ExportedProject/
+
+# ── Python ─────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+.env/
+
+# Modelos treinados (arquivos grandes)
+*.pth
+*.pt
+*.ckpt
+
+# Dados de treinamento
+PythonServer/data/
+
+# Distribuicao Python
+dist/
+build/
+*.egg-info/
+
+# ── Sistema Operacional ─────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Meta XR SDK ─────────────────────────────
+# Nao versionar cache do simulador
+MetaXRSimulator/
