@@ -1,87 +1,85 @@
 using UnityEngine;
 using TMPro;
+using Oculus.Interaction;
 using SentinelVR.AI;
 
 namespace SentinelVR.UI
 {
     /// <summary>
-    /// Botão interativo VR para ativar/desativar o sistema de IA de detecção de anomalias.
-    /// Exibe o estado atual do sistema e permite controle pelo operador na sala de controle.
+    /// Botao interativo VR para ativar/desativar o pipeline de IA.
+    /// Usa PointableUnityEventWrapper do Meta Interaction SDK.
+    /// NAO usa XR Simple Interactable (XR Interaction Toolkit).
+    /// SentinelVR — Residencia TIC 29
     /// </summary>
+    [RequireComponent(typeof(PointableUnityEventWrapper))]
     public class ToggleAISystem : MonoBehaviour
     {
-        [Header("Referências")]
-        [Tooltip("Detector de anomalias a ser controlado")]
+        [Header("Referencias")]
         public AnomalyDetector anomalyDetector;
 
-        [Header("UI do Botão")]
-        [Tooltip("Texto exibido no botão (ON/OFF)")]
+        [Header("UI")]
         public TextMeshPro buttonLabel;
-
-        [Tooltip("Renderer do botão para feedback visual")]
-        public Renderer buttonRenderer;
-
-        [Tooltip("Texto de status do sistema abaixo do botão")]
         public TextMeshPro statusText;
+        public Renderer    buttonRenderer;
 
-        [Header("Cores")]
-        [Tooltip("Cor do botão quando sistema está ativo")]
-        public Color activeColor = Color.green;
-
-        [Tooltip("Cor do botão quando sistema está desativado")]
-        public Color inactiveColor = Color.gray;
+        [Header("Cores — Meta XR SDK")]
+        public Color activeColor   = new Color(0f, 0.8f, 0f);
+        public Color inactiveColor = new Color(0.4f, 0.4f, 0.4f);
 
         [Header("Estado Inicial")]
-        [Tooltip("Se verdadeiro, sistema inicia ativo")]
         public bool startEnabled = true;
 
-        private bool _isSystemEnabled = false;
-        private MaterialPropertyBlock _propBlock;
+        private bool                   _isEnabled;
+        private PointableUnityEventWrapper _wrapper;
+        private MaterialPropertyBlock  _propBlock;
 
         private void Awake()
         {
             _propBlock = new MaterialPropertyBlock();
+            _wrapper   = GetComponent<PointableUnityEventWrapper>();
+            _wrapper.WhenPointerEventRaised.AddListener(OnPointerEvent);
         }
 
         private void Start()
         {
-            // TODO: Inicializar estado com startEnabled
-            // TODO: Atualizar UI para refletir estado inicial
+            _isEnabled = startEnabled;
+            ApplyState(_isEnabled);
         }
 
-        /// <summary>
-        /// Alterna o estado do sistema de IA (ativa/desativa).
-        /// Chamado pela interação XR com este botão.
-        /// </summary>
+        public void OnPointerEvent(PointerArgs args)
+        {
+            if (args.PointerEvent == PointerEvent.Select)
+                Toggle();
+        }
+
         public void Toggle()
         {
-            _isSystemEnabled = !_isSystemEnabled;
-            ApplySystemState(_isSystemEnabled);
+            _isEnabled = !_isEnabled;
+            ApplyState(_isEnabled);
         }
 
-        /// <summary>
-        /// Define o estado do sistema diretamente.
-        /// </summary>
-        /// <param name="enabled">True para ativar, false para desativar</param>
-        public void SetSystemEnabled(bool enabled)
+        private void ApplyState(bool enabled)
         {
-            _isSystemEnabled = enabled;
-            ApplySystemState(enabled);
+            if (anomalyDetector != null) anomalyDetector.enabled = enabled;
+
+            if (buttonLabel != null)
+                buttonLabel.text = enabled ? "SISTEMA: ON" : "SISTEMA: OFF";
+
+            if (statusText != null)
+                statusText.text = enabled
+                    ? "Pipeline de IA ativo — monitorando"
+                    : "Pipeline de IA pausado pelo operador";
+
+            if (buttonRenderer != null)
+            {
+                buttonRenderer.GetPropertyBlock(_propBlock);
+                _propBlock.SetColor("_BaseColor", enabled ? activeColor : inactiveColor);
+                buttonRenderer.SetPropertyBlock(_propBlock);
+            }
+
+            Debug.Log($"[ToggleAISystem] Sistema de IA: {(enabled ? "ATIVO" : "PAUSADO")}");
         }
 
-        private void ApplySystemState(bool enabled)
-        {
-            // TODO:
-            // 1. Ativar/desativar anomalyDetector.enabled
-            // 2. Atualizar buttonLabel.text ("SISTEMA: ON" / "SISTEMA: OFF")
-            // 3. Atualizar cor do buttonRenderer via _propBlock
-            // 4. Atualizar statusText com descrição do estado
-            // 5. Tocar feedback háptico no controller VR
-        }
-
-        /// <summary>
-        /// Retorna se o sistema de IA está atualmente ativo.
-        /// </summary>
-        public bool IsSystemEnabled() => _isSystemEnabled;
+        public bool IsSystemEnabled() => _isEnabled;
     }
 }

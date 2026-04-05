@@ -1,78 +1,48 @@
 using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
+using System.Collections;
 
 namespace SentinelVR.Monitors
 {
     /// <summary>
-    /// Controla o estado visual de um monitor de vigilância na sala de controle VR.
-    /// Gerencia o feed de câmera, indicadores de status e alertas visuais.
+    /// Controla estado visual + audio espacial de cada monitor de vigilancia.
+    /// AlertAudioSource deve ter OVRSpatialAudioSource do Meta XR SDK para
+    /// emitir o alarme na posicao 3D do monitor no espaco VR.
+    /// SentinelVR — Residencia TIC 29
     /// </summary>
     public class MonitorController : MonoBehaviour
     {
-        [Header("Configuração do Monitor")]
-        [Tooltip("ID único deste monitor (ex: CAM_01)")]
-        public string monitorId = "CAM_01";
+        [Header("Identificacao")]
+        public string monitorId    = "CAM_01";
+        public int    monitorIndex = 0;
 
-        [Tooltip("RenderTexture com o feed da câmera associada")]
+        [Header("Componentes Visuais")]
+        public Renderer      feedRenderer;
         public RenderTexture cameraFeedTexture;
+        public GameObject    alertBorder;
+        public TextMeshPro   scoreLabel;
+        public TextMeshPro   cameraLabel;
 
-        [Header("Referências de UI")]
-        [Tooltip("Renderer do quad que exibe o feed de câmera")]
-        public Renderer feedRenderer;
-
-        [Tooltip("Texto com ID/nome da câmera")]
-        public TextMeshPro cameraLabel;
-
-        [Tooltip("Indicador de status (verde = ok, vermelho = alerta)")]
-        public Renderer statusIndicator;
-
-        [Tooltip("Borda de alerta que pisca durante anomalia")]
-        public Renderer alertBorder;
-
-        [Tooltip("Texto com score de anomalia atual")]
-        public TextMeshPro anomalyScoreText;
-
-        [Header("Configurações Visuais")]
-        [Tooltip("Material normal do feed (sem alerta)")]
+        [Header("Materials")]
         public Material normalMaterial;
-
-        [Tooltip("Material de alerta (tinge o feed de vermelho)")]
         public Material alertMaterial;
 
-        [Tooltip("Cor do indicador de status normal")]
-        public Color statusNormalColor = Color.green;
+        [Header("Audio Espacial — Meta XR SDK")]
+        [Tooltip("AudioSource com OVRSpatialAudioSource. O som sera emitido na posicao 3D " +
+                 "deste monitor no espaco VR, guiando a atencao do operador direcionalmente.")]
+        public AudioSource alertAudioSource;
 
-        [Tooltip("Cor do indicador de status em alerta")]
-        public Color statusAlertColor = Color.red;
+        [Header("Configuracoes")]
+        public float blinkInterval = 0.4f;
 
-        [Tooltip("Velocidade de piscada do alerta (Hz)")]
-        public float blinkFrequency = 2f;
-
-        // Estado interno
-        private bool _isInAlert = false;
-        private float _currentAnomalyScore = 0f;
-        private float _blinkTimer = 0f;
-        private bool _blinkState = false;
+        private bool      _isAlerting = false;
+        private Coroutine _blinkCoroutine;
         private MaterialPropertyBlock _propBlock;
 
         private void Awake()
         {
             _propBlock = new MaterialPropertyBlock();
-            InitializeMonitor();
-        }
 
-        private void Update()
-        {
-            if (_isInAlert)
-            {
-                UpdateAlertBlink();
-            }
-        }
-
-        private void InitializeMonitor()
-        {
-            // Aplica o feed de câmera ao renderer
             if (feedRenderer != null && cameraFeedTexture != null)
             {
                 feedRenderer.GetPropertyBlock(_propBlock);
@@ -80,93 +50,71 @@ namespace SentinelVR.Monitors
                 feedRenderer.SetPropertyBlock(_propBlock);
             }
 
-            // Define o label
-            if (cameraLabel != null)
-                cameraLabel.text = monitorId;
-
-            // Estado inicial: normal
-            SetNormalState();
+            if (cameraLabel != null) cameraLabel.text = monitorId;
+            if (alertBorder  != null) alertBorder.SetActive(false);
+            if (scoreLabel   != null) scoreLabel.gameObject.SetActive(false);
         }
 
         /// <summary>
-        /// Ativa o estado de alerta no monitor com o score fornecido.
+        /// Ativa borda de alerta piscante e audio espacial 3D neste monitor.
+        /// O operador ouve o alarme vindo da direcao desta camera no espaco VR.
         /// </summary>
-        /// <param name="anomalyScore">Score de anomalia entre 0 e 1</param>
-        public void SetAlert(float anomalyScore)
+        public void TriggerAlert(float anomalyScore)
         {
-            _isInAlert = true;
-            _currentAnomalyScore = anomalyScore;
+            if (_isAlerting) return;
+            _isAlerting = true;
 
-            // Aplica material de alerta
             if (feedRenderer != null && alertMaterial != null)
                 feedRenderer.material = alertMaterial;
 
-            // Atualiza indicador de status
-            if (statusIndicator != null)
+            if (alertBorder != null) alertBorder.SetActive(true);
+
+            if (scoreLabel != null)
             {
-                statusIndicator.GetPropertyBlock(_propBlock);
-                _propBlock.SetColor("_BaseColor", statusAlertColor);
-                statusIndicator.SetPropertyBlock(_propBlock);
+                scoreLabel.text = $"SCORE: {anomalyScore:F3}";
+                scoreLabel.gameObject.SetActive(true);
             }
 
-            // Exibe score
-            if (anomalyScoreText != null)
-                anomalyScoreText.text = $"ANOMALIA: {anomalyScore:P0}";
+            // Audio espacial: emite o som na posicao 3D do monitor (Meta OVRSpatialAudioSource)
+            if (alertAudioSource != null) alertAudioSource.Play();
 
-            // Mostra borda de alerta
-            if (alertBorder != null)
-                alertBorder.enabled = true;
+            _blinkCoroutine = StartCoroutine(BlinkBorder());
+            Debug.Log($"[Monitor {monitorIndex + 1}] Alerta ativado — Score: {anomalyScore:F3}");
         }
 
         /// <summary>
-        /// Retorna o monitor ao estado normal (sem alerta).
+        /// Dispensa o alerta: para piscar, silencia audio espacial, restaura visual normal.
         /// </summary>
         public void DismissAlert()
         {
-            _isInAlert = false;
-            _currentAnomalyScore = 0f;
-            SetNormalState();
-        }
+            if (!_isAlerting) return;
+            _isAlerting = false;
 
-        private void SetNormalState()
-        {
+            if (_blinkCoroutine != null) StopCoroutine(_blinkCoroutine);
+            if (alertBorder     != null) alertBorder.SetActive(false);
+            if (scoreLabel      != null) scoreLabel.gameObject.SetActive(false);
+            if (alertAudioSource != null) alertAudioSource.Stop();
+
             if (feedRenderer != null && normalMaterial != null)
                 feedRenderer.material = normalMaterial;
 
-            if (statusIndicator != null)
-            {
-                statusIndicator.GetPropertyBlock(_propBlock);
-                _propBlock.SetColor("_BaseColor", statusNormalColor);
-                statusIndicator.SetPropertyBlock(_propBlock);
-            }
-
-            if (anomalyScoreText != null)
-                anomalyScoreText.text = "STATUS: OK";
-
-            if (alertBorder != null)
-                alertBorder.enabled = false;
+            Debug.Log($"[Monitor {monitorIndex + 1}] Alerta dispensado pelo operador.");
         }
 
-        private void UpdateAlertBlink()
+        private IEnumerator BlinkBorder()
         {
-            _blinkTimer += Time.deltaTime;
-            if (_blinkTimer >= 1f / blinkFrequency)
+            bool visible = true;
+            while (_isAlerting)
             {
-                _blinkTimer = 0f;
-                _blinkState = !_blinkState;
-
-                if (alertBorder != null)
-                    alertBorder.enabled = _blinkState;
+                if (alertBorder != null) alertBorder.SetActive(visible);
+                visible = !visible;
+                yield return new WaitForSeconds(blinkInterval);
             }
         }
 
-        /// <summary>Retorna true se o monitor está em estado de alerta.</summary>
-        public bool IsInAlert() => _isInAlert;
-
-        /// <summary>Retorna o score de anomalia atual.</summary>
-        public float GetAnomalyScore() => _currentAnomalyScore;
-
-        /// <summary>Retorna o ID deste monitor.</summary>
-        public string GetMonitorId() => monitorId;
+        public bool   IsInAlert()        => _isAlerting;
+        public string GetMonitorId()     => monitorId;
+        public float  GetAnomalyScore()  => scoreLabel != null && scoreLabel.gameObject.activeSelf
+                                            ? float.Parse(scoreLabel.text.Replace("SCORE: ", "")) : 0f;
     }
 }

@@ -1,76 +1,102 @@
 using UnityEngine;
+using TMPro;
 using SentinelVR.Monitors;
 
 namespace SentinelVR.AI
 {
     /// <summary>
-    /// Gerencia a exibição e descarte de alertas de anomalia em todos os monitores da sala de controle VR.
-    /// Responsável por coordenar notificações visuais e sonoras quando uma anomalia é detectada.
+    /// Orquestra alertas visuais em todos os monitores ao receber evento OnAnomalyDetected.
+    /// Conectar OnAnomalyDetected e OnAnomalyCleared do AnomalyDetector via Inspector.
+    /// SentinelVR — Residencia TIC 29
     /// </summary>
     public class AnomalyAlertController : MonoBehaviour
     {
-        [Header("Monitores")]
-        [Tooltip("Lista de monitores gerenciados por este controlador")]
+        [Header("Monitores (indices 0-5 = CAM 1-6)")]
         public MonitorController[] monitors;
 
-        [Header("Audio")]
-        [Tooltip("AudioSource para tocar o som de alerta")]
-        public AudioSource alertAudioSource;
+        [Header("Painel Central de Alerta")]
+        public TextMeshPro alertStatusText;
+        public TextMeshPro anomalyScoreText;
+        public GameObject  alertIconActive;
 
-        [Tooltip("Clipe de áudio tocado ao detectar anomalia")]
-        public AudioClip alertSound;
-
-        [Header("Configurações")]
-        [Tooltip("Duração do alerta em segundos antes de auto-dismiss (0 = sem auto-dismiss)")]
-        public float autoDismissDelay = 0f;
+        [Header("Audio Geral")]
+        public AudioSource generalAlertAudio;
 
         private void Start()
         {
-            // TODO: Inicializar referências e validar configuração
+            if (alertIconActive != null) alertIconActive.SetActive(false);
+            UpdateStatusPanel(-1, 0f, false);
         }
 
         /// <summary>
-        /// Dispara um alerta de anomalia no monitor correspondente à câmera detectora.
+        /// Chamado pelo evento OnAnomalyDetected do AnomalyDetector (via Inspector).
         /// </summary>
-        /// <param name="anomalyScore">Score de anomalia retornado pelo servidor Python (0-1)</param>
-        /// <param name="location">Coordenadas 2D normalizadas da anomalia no frame</param>
-        public void TriggerAlert(float anomalyScore, Vector2 location)
+        public void OnAnomalyDetected(int cameraIndex, float score)
         {
-            // TODO:
-            // 1. Identificar qual monitor corresponde à localização
-            // 2. Chamar monitor.SetAlert(anomalyScore)
-            // 3. Tocar alertAudioSource.PlayOneShot(alertSound)
-            // 4. Se autoDismissDelay > 0, agendar DismissAlert via corrotina
-            // 5. Emitir evento/log de auditoria
+            if (cameraIndex < 0 || cameraIndex >= monitors.Length) return;
+
+            monitors[cameraIndex].TriggerAlert(score);
+
+            UpdateStatusPanel(cameraIndex, score, true);
+
+            // Audio geral (complementar ao audio espacial de cada monitor)
+            if (generalAlertAudio != null && !generalAlertAudio.isPlaying)
+                generalAlertAudio.Play();
+
+            Debug.LogWarning($"[AlertController] Anomalia CAM {cameraIndex + 1} | Score: {score:F3}");
         }
 
         /// <summary>
-        /// Descarta o alerta ativo no monitor especificado.
+        /// Chamado pelo evento OnAnomalyCleared do AnomalyDetector (via Inspector).
         /// </summary>
-        /// <param name="monitorId">ID do monitor a ser resetado</param>
-        public void DismissAlert(string monitorId)
+        public void OnAnomalyCleared(int cameraIndex)
         {
-            // TODO:
-            // 1. Encontrar monitor com ID correspondente em monitors[]
-            // 2. Chamar monitor.DismissAlert()
-            // 3. Atualizar estado de auditoria
+            if (cameraIndex < 0 || cameraIndex >= monitors.Length) return;
+            if (!monitors[cameraIndex].IsInAlert()) return;
+
+            monitors[cameraIndex].DismissAlert();
+            UpdateStatusPanel(cameraIndex, 0f, false);
         }
 
         /// <summary>
-        /// Descarta todos os alertas ativos em todos os monitores.
+        /// Dispensa manualmente o alerta de um monitor (chamado pelo DismissAlert.cs).
         /// </summary>
+        public void DismissAlert(int cameraIndex)
+        {
+            if (cameraIndex < 0 || cameraIndex >= monitors.Length) return;
+            monitors[cameraIndex].DismissAlert();
+            UpdateStatusPanel(cameraIndex, 0f, false);
+
+            if (generalAlertAudio != null) generalAlertAudio.Stop();
+        }
+
         public void DismissAllAlerts()
         {
-            // TODO: Iterar sobre todos os monitors e chamar DismissAlert()
+            for (int i = 0; i < monitors.Length; i++) monitors[i].DismissAlert();
+            UpdateStatusPanel(-1, 0f, false);
+            if (generalAlertAudio != null) generalAlertAudio.Stop();
         }
 
-        /// <summary>
-        /// Retorna verdadeiro se há algum monitor em estado de alerta ativo.
-        /// </summary>
         public bool HasActiveAlerts()
         {
-            // TODO: Verificar monitors[] e retornar true se algum IsInAlert()
+            foreach (var m in monitors) if (m.IsInAlert()) return true;
             return false;
+        }
+
+        private void UpdateStatusPanel(int camIdx, float score, bool isAlert)
+        {
+            if (alertStatusText != null)
+                alertStatusText.text = isAlert
+                    ? $"ANOMALIA — CAM {camIdx + 1:00}"
+                    : "SISTEMA NORMAL";
+
+            if (anomalyScoreText != null)
+                anomalyScoreText.text = isAlert
+                    ? $"Score: {score:F3}"
+                    : "Score: ---";
+
+            if (alertIconActive != null)
+                alertIconActive.SetActive(isAlert);
         }
     }
 }

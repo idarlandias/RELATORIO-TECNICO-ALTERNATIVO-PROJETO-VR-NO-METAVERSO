@@ -1,67 +1,87 @@
 using UnityEngine;
+using Oculus.Interaction;
 using SentinelVR.AI;
 
 namespace SentinelVR.Monitors
 {
     /// <summary>
-    /// Componente interativo VR que permite ao usuário dispensar alertas de anomalia
-    /// tocando/apertando o botão correspondente na sala de controle.
-    /// Deve ser colocado em um GameObject com Collider para interação com raycasting XR.
+    /// Dispensa o alerta do monitor via Meta Interaction SDK.
+    /// Requer PointableUnityEventWrapper (Meta XR SDK) neste GameObject.
+    /// NAO usa XR Simple Interactable (XR Interaction Toolkit).
+    /// 
+    /// Setup no Inspector:
+    ///   1. Adicionar componente PointableUnityEventWrapper
+    ///   2. Em WhenPointerEventRaised, referenciar este DismissAlert.OnPointerEvent
+    ///   3. Referenciar targetMonitor e alertController
+    /// SentinelVR — Residencia TIC 29
     /// </summary>
+    [RequireComponent(typeof(PointableUnityEventWrapper))]
     public class DismissAlert : MonoBehaviour
     {
-        [Header("Referências")]
-        [Tooltip("Monitor associado a este botão de dismiss")]
+        [Header("Referencias")]
+        [Tooltip("Monitor associado a este botao de dismiss")]
         public MonitorController targetMonitor;
 
         [Tooltip("Controlador geral de alertas")]
         public AnomalyAlertController alertController;
 
         [Header("Feedback Visual")]
-        [Tooltip("Renderer do botão para feedback de hover/press")]
         public Renderer buttonRenderer;
+        public Color    normalColor = Color.white;
+        public Color    hoverColor  = new Color(0f, 1f, 0f, 1f);
+        public Color    pressColor  = new Color(0f, 0.8f, 0f, 1f);
 
-        [Tooltip("Cor normal do botão")]
-        public Color normalColor = Color.white;
+        private PointableUnityEventWrapper _wrapper;
+        private MaterialPropertyBlock      _propBlock;
 
-        [Tooltip("Cor ao fazer hover com o controller VR")]
-        public Color hoverColor = Color.yellow;
-
-        [Tooltip("Cor ao pressionar")]
-        public Color pressColor = Color.green;
-
-        private void Start()
+        private void Awake()
         {
-            // TODO: Registrar nos eventos do XR Interaction Toolkit (OnSelectEntered, etc.)
+            _propBlock = new MaterialPropertyBlock();
+            _wrapper   = GetComponent<PointableUnityEventWrapper>();
+            _wrapper.WhenPointerEventRaised.AddListener(OnPointerEvent);
         }
 
         /// <summary>
-        /// Chamado quando o usuário seleciona/pressiona este botão no ambiente VR.
-        /// Descarta o alerta do monitor associado.
+        /// Chamado pelo PointableUnityEventWrapper do Meta Interaction SDK.
+        /// Trata hover e selecao (trigger press).
         /// </summary>
-        public void OnButtonPressed()
+        public void OnPointerEvent(PointerArgs args)
         {
-            // TODO:
-            // 1. Verificar se targetMonitor.IsInAlert()
-            // 2. Chamar alertController.DismissAlert(targetMonitor.GetMonitorId())
-            // 3. Tocar feedback háptico no controller
-            // 4. Animar botão (pressColor por 0.2s, voltar a normalColor)
+            switch (args.PointerEvent)
+            {
+                case PointerEvent.Hover:
+                    SetButtonColor(hoverColor);
+                    break;
+
+                case PointerEvent.Unhover:
+                    SetButtonColor(normalColor);
+                    break;
+
+                case PointerEvent.Select:
+                    SetButtonColor(pressColor);
+                    DismissTargetAlert();
+                    break;
+
+                case PointerEvent.Unselect:
+                    SetButtonColor(normalColor);
+                    break;
+            }
         }
 
-        /// <summary>
-        /// Chamado quando o controller VR entra na área de hover deste botão.
-        /// </summary>
-        public void OnHoverEnter()
+        private void DismissTargetAlert()
         {
-            // TODO: Mudar cor do buttonRenderer para hoverColor
+            if (targetMonitor == null || !targetMonitor.IsInAlert()) return;
+
+            alertController?.DismissAlert(targetMonitor.monitorIndex);
+            Debug.Log($"[DismissAlert] Alerta dispensado: {targetMonitor.monitorId}");
         }
 
-        /// <summary>
-        /// Chamado quando o controller VR sai da área de hover deste botão.
-        /// </summary>
-        public void OnHoverExit()
+        private void SetButtonColor(Color color)
         {
-            // TODO: Retornar cor do buttonRenderer para normalColor
+            if (buttonRenderer == null) return;
+            buttonRenderer.GetPropertyBlock(_propBlock);
+            _propBlock.SetColor("_BaseColor", color);
+            buttonRenderer.SetPropertyBlock(_propBlock);
         }
     }
 }
